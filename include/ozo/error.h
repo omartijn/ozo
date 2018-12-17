@@ -89,6 +89,8 @@ enum code {
     bad_array_size, //!< an array size received does not equal to the expected or not supported by the type
     bad_array_dimension, //!< an array dimension count received does not equal to the expected or not supported by the type
     bad_composite_size, //!< a composite's fields number received does not equal to the expected or not supported by the type
+    pq_cancel_failed, //!< libpq PQcancel function call failed, see `get_error_context()` for more information
+    pq_get_cancel_failed, //!< libpq PQgetCancel function call failed, see `get_error_context()` for more information
 };
 
 /**
@@ -451,6 +453,10 @@ public:
                 return "an array dimension count received does not equal to the expected or not supported by the type";
             case bad_composite_size:
                 return "a composite's fields number received does not equal to the expected or not supported by the type";
+            case pq_cancel_failed:
+                return "libpq PQcancel function call failed";
+            case pq_get_cancel_failed:
+                return "libpq PQgetCancel function call failed";
         }
         return "no message for value: " + std::to_string(value);
     }

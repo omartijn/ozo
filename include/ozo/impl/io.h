@@ -1,6 +1,7 @@
 #pragma once
 
 #include <ozo/native_conn_handle.h>
+#include <ozo/native_cancel_handle.h>
 #include <ozo/connection.h>
 #include <ozo/error.h>
 #include <ozo/io/binary_query.h>
@@ -111,6 +112,12 @@ inline native_result_handle pq_get_result(T& conn) noexcept {
     return native_result_handle(PQgetResult(get_native_handle(conn)));
 }
 
+template <typename T>
+inline native_shared_cancel_handle pq_get_cancel(T& conn) {
+    static_assert(Connection<T>, "T must be a Connection");
+    return native_shared_cancel_handle{PQgetCancel(get_native_handle(conn)), native_cancel_handle_deleter{}};
+}
+
 inline ExecStatusType pq_result_status(const PGresult& res) noexcept {
     return PQresultStatus(std::addressof(res));
 }
@@ -120,6 +127,10 @@ inline error_code pq_result_error(const PGresult& res) noexcept {
         return sqlstate::make_error_code(std::strtol(s, NULL, 36));
     }
     return error::no_sql_state_found;
+}
+
+inline bool pq_cancel(native_shared_cancel_handle h, std::string& err) {
+    return PQcancel(h.get(), std::data(err), std::size(err));
 }
 
 } // namespace pq
@@ -212,6 +223,13 @@ inline decltype(auto) get_result(T& conn) noexcept {
 }
 
 template <typename T>
+inline decltype(auto) get_cancel_handle(T&& conn) {
+    static_assert(Connection<T>, "T must be a Connection");
+    using pq::pq_get_cancel;
+    return pq_get_cancel(unwrap_connection(conn));
+}
+
+template <typename T>
 inline ExecStatusType result_status(T&& res) noexcept {
     using pq::pq_result_status;
     return pq_result_status(std::forward<T>(res));
@@ -221,6 +239,25 @@ template <typename T>
 inline error_code result_error(T&& res) noexcept {
     using pq::pq_result_error;
     return pq_result_error(std::forward<T>(res));
+}
+
+template <typename Handle>
+inline auto dispatch_cancel(Handle h) {
+    auto res = std::make_tuple(error_code{}, std::string(255, '\0'));
+    using pq::pq_cancel;
+    if (!pq_cancel(h, std::get<std::string>(res))) {
+        std::get<error_code>(res) = error::pq_cancel_failed;
+        auto& msg = std::get<std::string>(res);
+        const auto pos = msg.find_last_not_of('\0');
+        if (pos == msg.npos) {
+            msg.clear();
+        } else if (pos < msg.size()) {
+            msg.resize(pos + 1);
+        }
+    } else {
+        std::get<std::string>(res).clear();
+    }
+    return res;
 }
 
 } // namespace ozo::impl

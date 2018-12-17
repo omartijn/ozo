@@ -68,6 +68,7 @@ set(SOURCES
     transaction_status.cpp
     impl/async_request.cpp
     io/size_of.cpp
+    impl/async_cancel.cpp
     main.cpp
 )
 
