@@ -10,7 +10,20 @@
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
 
+namespace ozo::pg {
+
+static bool operator ==(const pg::jsonb& lhs, const pg::jsonb& rhs) {
+    return lhs.raw_string() == rhs.raw_string();
+}
+
+static std::ostream& operator <<(std::ostream& s, const pg::jsonb& v) {
+    return s << v.raw_string();
+}
+
+} // namespace ozo::pg
+
 namespace ozo::tests {
+
 struct custom_type {
     std::int16_t number;
     std::string text;
@@ -24,17 +37,32 @@ static std::ostream& operator << (std::ostream& s, const custom_type& v) {
     return s << '(' << v.number << ",\"" << v.text <<"\")";
 }
 
+struct with_jsonb {
+    ozo::pg::jsonb value;
+};
+
+static bool operator ==(const with_jsonb& lhs, const with_jsonb& rhs) {
+    return lhs.value == rhs.value;
+}
+
+static std::ostream& operator <<(std::ostream& s, const with_jsonb& v) {
+    return s << v.value;
+}
+
 } // namespace ozo::tests
 
 BOOST_FUSION_ADAPT_STRUCT(ozo::tests::custom_type, number, text)
+BOOST_FUSION_ADAPT_STRUCT(ozo::tests::with_jsonb, value)
 
 OZO_PG_DEFINE_CUSTOM_TYPE(ozo::tests::custom_type, "custom_type")
+OZO_PG_DEFINE_CUSTOM_TYPE(ozo::tests::with_jsonb, "with_jsonb")
 
 
 #define ASSERT_REQUEST_OK(ec, conn)\
     ASSERT_FALSE(ec) << ec.message() \
         << "|" << ozo::error_message(conn) \
         << "|" << ozo::get_error_context(conn) << std::endl
+
 namespace {
 
 namespace hana = boost::hana;
@@ -328,6 +356,68 @@ TEST(request, should_send_empty_optional) {
         ASSERT_REQUEST_OK(ec, conn);
         EXPECT_THAT(result, ElementsAre(value));
         EXPECT_FALSE(ozo::connection_bad(conn));
+    });
+
+    io.run();
+}
+
+TEST(request, should_send_and_receive_jsonb) {
+    using namespace ozo::literals;
+    using namespace std::string_literals;
+    using namespace std::string_view_literals;
+    namespace asio = boost::asio;
+
+    ozo::io_context io;
+    const ozo::connection_info<> conn_info(OZO_PG_TEST_CONNINFO);
+    const auto timeout = ozo::time_traits::duration::max();
+    std::string value = R"({"foo": "bar"})";
+
+    ozo::rows_of<ozo::pg::jsonb> result;
+    std::atomic_flag called {};
+    ozo::request(ozo::make_connector(conn_info, io), "SELECT "_SQL + value + "::jsonb"_SQL, timeout, ozo::into(result),
+            [&](ozo::error_code ec, auto conn) {
+        EXPECT_FALSE(called.test_and_set());
+        ASSERT_REQUEST_OK(ec, conn);
+        EXPECT_THAT(result, ElementsAre(ozo::pg::jsonb(value)));
+        EXPECT_FALSE(ozo::connection_bad(conn));
+    });
+
+    io.run();
+}
+
+TEST(request, should_send_and_receive_composite_with_jsonb_field) {
+    using namespace ozo::literals;
+    using namespace std::string_literals;
+    using namespace std::string_view_literals;
+    namespace asio = boost::asio;
+
+    ozo::io_context io;
+
+    asio::spawn(io, [&] (asio::yield_context yield) {
+        [&] {
+            const auto conn_info = ozo::make_connection_info(OZO_PG_TEST_CONNINFO);
+            ozo::error_code ec;
+            auto conn = ozo::execute(ozo::make_connector(conn_info, io),
+                "DROP TYPE IF EXISTS with_jsonb"_SQL, yield[ec]);
+            ASSERT_REQUEST_OK(ec, conn);
+            ozo::execute(conn, "CREATE TYPE with_jsonb AS (value jsonb)"_SQL, yield[ec]);
+            ASSERT_REQUEST_OK(ec, conn);
+        } ();
+
+        const auto conn_info = ozo::make_connection_info(
+            OZO_PG_TEST_CONNINFO,
+            ozo::register_types<with_jsonb>()
+        );
+
+        const with_jsonb value {{R"({"foo": "bar"})"}};
+        ozo::rows_of<with_jsonb> result;
+        ozo::error_code ec;
+        auto conn = ozo::request(ozo::make_connector(conn_info, io), "SELECT "_SQL + value + "::with_jsonb"_SQL,
+                                 ozo::into(result), yield[ec]);
+
+        ASSERT_REQUEST_OK(ec, conn);
+
+        EXPECT_THAT(result, ElementsAre(with_jsonb {{R"({"foo": "bar"})"}}));
     });
 
     io.run();

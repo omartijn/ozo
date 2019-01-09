@@ -5,6 +5,7 @@
 #include <ozo/io/send.h>
 #include <ozo/io/array.h>
 #include <ozo/io/composite.h>
+#include <ozo/io/jsonb.h>
 #include <ozo/core/concept.h>
 #include <ozo/query.h>
 #include <ozo/type_traits.h>
