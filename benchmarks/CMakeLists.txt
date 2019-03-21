@@ -12,7 +12,7 @@ if(CCACHE_FOUND)
     set_property(GLOBAL PROPERTY RULE_LAUNCH_LINK ccache)
 endif()
 
-find_package(Boost COMPONENTS coroutine context system thread REQUIRED)
+find_package(Boost COMPONENTS program_options coroutine context system thread REQUIRED)
 include_directories(SYSTEM "${Boost_INCLUDE_DIRS}")
 
 find_package(PostgreSQL)
@@ -31,3 +31,4 @@ target_link_libraries(ozo_benchmark ${LIBRARIES})
 add_executable(ozo_benchmark_performance performance.cpp)
 target_compile_features(ozo_benchmark_performance PRIVATE cxx_std_17)
 target_link_libraries(ozo_benchmark_performance ${LIBRARIES})
+target_link_libraries(ozo_benchmark_performance nlohmann_json::nlohmann_json)
