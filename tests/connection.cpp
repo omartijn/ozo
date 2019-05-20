@@ -189,6 +189,7 @@ struct async_get_connection : Test {
     StrictMock<executor_gmock> executor;
     StrictMock<executor_gmock> callback_executor;
     io_context io {executor};
+    execution_context cb_io {callback_executor};
 };
 
 TEST_F(async_get_connection, should_pass_through_the_connection_to_handler) {
@@ -197,7 +198,7 @@ TEST_F(async_get_connection, should_pass_through_the_connection_to_handler) {
 
     const InSequence s;
 
-    EXPECT_CALL(cb_mock, get_executor()).WillOnce(Return(ozo::tests::executor {&callback_executor}));
+    EXPECT_CALL(cb_mock, get_executor()).WillOnce(Return(cb_io.get_executor()));
     EXPECT_CALL(executor, dispatch(_)).WillOnce(InvokeArgument<0>());
     EXPECT_CALL(callback_executor, dispatch(_)).WillOnce(InvokeArgument<0>());
     EXPECT_CALL(cb_mock, call(error_code{}, conn)).WillOnce(Return());
@@ -283,6 +284,10 @@ static const char* PQerrorMessage(const native_handle*) {
 
 TEST(error_message, should_return_empty_string_view_for_nullable_connection_in_null_state){
     EXPECT_EQ(std::string(ozo::error_message(connection_ptr<>{})), "");
+}
+
+TEST(ConnectionProvider, should_return_false_for_non_connection_provider_type){
+    EXPECT_FALSE(ozo::ConnectionProvider<int>);
 }
 
 } //namespace

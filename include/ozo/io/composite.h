@@ -44,14 +44,12 @@ constexpr auto fields_number(const T& v) -> Require<HanaStruct<T>, size_type> {
 
 template <typename T>
 constexpr auto data_size(const T& v) -> Require<FusionSequence<T>&&!HanaStruct<T>, size_type> {
-    using ozo::size_of;
     return fusion::fold(v, size_type(0),
         [&] (auto r, const auto& item) { return r + frame_size(item); });
 }
 
 template <typename T>
 constexpr auto data_size(const T& v)  -> Require<HanaStruct<T>, size_type>{
-    using ozo::size_of;
     return hana::fold(hana::members(v), size_type(0),
         [&] (auto r, const auto& item) { return r + frame_size(item); });
 }
@@ -59,6 +57,7 @@ constexpr auto data_size(const T& v)  -> Require<HanaStruct<T>, size_type>{
 template <typename T>
 struct size_of_composite {
     static constexpr auto apply(const T& v) {
+        using ozo::size_of;
         constexpr const auto header_size = size_of(detail::pg_composite{});
         return header_size +  data_size(v);
     }
@@ -97,7 +96,8 @@ inline Require<Composite<T>> read_and_verify_header(istream& in, const T& v) {
     pg_composite header;
     read(in, header);
     if (header.count != fields_number(v)) {
-        throw std::range_error("incoming composite fields count " + std::to_string(header.count)
+        throw system_error(error::bad_composite_size,
+            "incoming composite fields count " + std::to_string(header.count)
             + " does not match fields count " + std::to_string(fields_number(v))
             + " of type " + boost::core::demangle(typeid(v).name()));
     }
@@ -120,14 +120,9 @@ struct recv_hana_adapted_composite_impl {
     template <typename M>
     static istream& apply(istream& in, size_type, const oid_map_t<M>& oid_map, T& out) {
         read_and_verify_header(in, out);
-        out = hana::unpack(
-            hana::fold(hana::members(out), hana::tuple<>(),
-                [&] (auto&& r, auto&& v) {
-                    recv_frame(in, oid_map, v);
-                    return hana::append(std::move(r), std::move(v));
-                }),
-            [] (auto&& ... args) { return T {std::move(args) ...}; }
-        );
+        hana::for_each(hana::keys(out), [&in, &out, &oid_map](auto key) {
+            recv_frame(in, oid_map, hana::at_key(out, key));
+        });
         return in;
     }
 };

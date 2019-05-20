@@ -4,6 +4,7 @@
 #include <ozo/type_traits.h>
 #include <ozo/asio.h>
 #include <ozo/core/concept.h>
+#include <ozo/core/recursive.h>
 
 #include <ozo/detail/bind.h>
 #include <ozo/impl/connection.h>
@@ -25,16 +26,8 @@ namespace ozo {
 
 using no_statistics = decltype(hana::make_map());
 
-template <typename, typename = std::void_t<>>
-struct unwrap_connection_default_impl {
-    template <typename Conn>
-    static constexpr decltype(auto) apply(Conn&& conn) noexcept {
-        return std::forward<Conn>(conn);
-    }
-};
-
 template <typename T>
-struct unwrap_connection_impl : unwrap_connection_default_impl<T> {};
+struct unwrap_connection_impl : unwrap_recursive_impl<T> {};
 /**
  * @ingroup group-connection-functions
  * @brief Unwrap connection if wrapped with Nullable
@@ -78,14 +71,6 @@ template <typename T>
 inline constexpr decltype(auto) unwrap_connection(T&& conn) noexcept {
     return unwrap_connection_impl<std::decay_t<T>>::apply(std::forward<T>(conn));
 }
-
-template <typename T>
-struct unwrap_connection_default_impl<T, Require<Nullable<T>>>{
-    template <typename Conn>
-    static constexpr decltype(auto) apply(Conn&& conn) noexcept {
-        return unwrap_connection(unwrap(conn));
-    }
-};
 
 template <typename T, typename = std::void_t<>>
 struct get_connection_oid_map_impl {
@@ -492,7 +477,7 @@ template <typename T>
 inline bool connection_bad(const T& conn) noexcept {
     static_assert(Connection<T>, "T must be a Connection");
     using impl::connection_status_bad;
-    return is_null(conn) ? true : connection_status_bad(get_native_handle(conn));
+    return is_null_recursive(conn) ? true : connection_status_bad(get_native_handle(conn));
 }
 
 /**
@@ -521,21 +506,21 @@ inline bool connection_good(const T& conn) noexcept {
 template <typename T>
 inline std::string_view error_message(T&& conn) {
     static_assert(Connection<T>, "T must be a Connection");
-    if (is_null(conn)) {
+    if (is_null_recursive(conn)) {
         return {};
     }
     return impl::connection_error_message(get_native_handle(conn));
 }
 
 /**
- * @brief Gives additional error context from OZO
+ * @brief Additional error context getter
  *
- * In parallel with libpq OZO provides additional context for different errors which
- * can be while interacting via connection. This function gives access for
- * such context.
+ * In addition to libpq OZO provides its own error context. This is
+ * a getter for such a context. Please be sure that the connection
+ * is not in the null state via `ozo::is_null_recursive()` function.
  *
- * @sa ozo::set_error_context(), ozo::reset_error_context()
- * @param conn --- #Connection to get context from
+ * @sa ozo::set_error_context(), ozo::reset_error_context(), ozo::is_null_recursive()
+ * @param conn --- #Connection to get context from, should not be in null state
  * @return `std::string` contains a context
  */
 template <typename T>
@@ -545,12 +530,13 @@ inline const auto& get_error_context(const T& conn) {
 }
 
 /**
- * @brief Set connection OZO-related error context
+ * @brief Additional error context setter
  *
- * Like libpq OZO provides additional context for errors.
- * This function sets such context for the specified connection.
+ * In addition to libpq OZO provides its own error context. This is
+ * a setter for such a context. Please be sure that the connection
+ * is not in the null state via `ozo::is_null_recursive()` function.
  *
- * @sa ozo::get_error_context(), ozo::reset_error_context()
+ * @sa ozo::get_error_context(), ozo::reset_error_context(), ozo::is_null_recursive()
  * @param conn --- #Connection to set context to
  * @param ctx --- context to set, now only `std::string` is supported
  */
@@ -561,12 +547,14 @@ inline void set_error_context(T& conn, Ctx&& ctx) {
 }
 
 /**
- * @brief Reset connection OZO-related error context
+ * @brief Reset additional error context
  *
- * This function resets OZO-related error context to default.
+ * This function resets additional error context to its default value.
+ * Please be sure that the connection  is not in the null state via
+ * `ozo::is_null_recursive()` function.
  *
- * @sa ozo::set_error_context(), ozo::get_error_context()
- * @param conn --- #Connection to reset context to
+ * @sa ozo::set_error_context(), ozo::get_error_context(), ozo::is_null_recursive()
+ * @param conn --- #Connection to reset context, should not be in null state
  */
 template <typename T>
 inline void reset_error_context(T& conn) {
@@ -580,8 +568,10 @@ inline void reset_error_context(T& conn) {
  *
  * This function gives access to a connection OID map, which represents mapping
  * of custom types to its' OIDs in a database connected to.
+ * Please be sure that the connection  is not in the null state via
+ * `ozo::is_null_recursive()` function.
  *
- * @param conn --- #Connection to access OID map of
+ * @param conn --- #Connection to access OID map, should not be in null state
  * @return OID map of the Connection
  */
 template <typename T>
@@ -595,7 +585,10 @@ inline decltype(auto) get_oid_map(T&& conn) noexcept {
  *
  * @note This feature is not implemented yet
  *
- * @param conn --- #Connection to access statistics of
+ * Please be sure that the connection  is not in the null state via
+ * `ozo::is_null_recursive()` function.
+ *
+ * @param conn --- #Connection to access statistics, should not be in null state
  * @return statistics of the Connection
  */
 template <typename T>
@@ -616,7 +609,10 @@ inline decltype(auto) get_statistics(T&& conn) noexcept {
  * <a href="https://www.boost.org/doc/libs/1_66_0/doc/html/boost_asio/reference/steady_timer.html">
  * boost::asio::steady_timer</a>).
  *
- * @param conn --- #Connection to access statistics of
+ * Please be sure that the connection  is not in the null state via
+ * `ozo::is_null_recursive()` function.
+ *
+ * @param conn --- #Connection to access statistics of, should not be in null state
  * @return a reference or proxy for a timer
  */
 template <typename T>
@@ -710,13 +706,16 @@ template <typename ConnectionProvider>
 using connection_type = typename get_connection_type<std::decay_t<ConnectionProvider>>::type;
 
 template <typename T, typename = std::void_t<>>
-struct async_get_connection_impl {
+struct async_get_connection_impl_default {
     template <typename Provider, typename Handler>
     static constexpr auto apply(Provider&& p, Handler&& h) ->
-        decltype(p.async_get_connection(std::forward<Handler>(h))) {
+            decltype(p.async_get_connection(std::forward<Handler>(h))) {
         p.async_get_connection(std::forward<Handler>(h));
     }
 };
+
+template <typename Provider>
+struct async_get_connection_impl : async_get_connection_impl_default<Provider> {};
 
 template <typename, typename = std::void_t<>>
 struct is_connection_source : std::false_type {};
@@ -785,10 +784,10 @@ struct is_connection_source<T, std::void_t<decltype(
 template <typename T>
 constexpr auto ConnectionSource = is_connection_source<std::decay_t<T>>::value;
 
-template <typename T, typename Handler>
-inline auto async_get_connection(T&& provider, Handler&& handler)
-         -> decltype(async_get_connection_impl<std::decay_t<T>>::apply(std::forward<T>(provider), std::forward<Handler>(handler))) {
-    return async_get_connection_impl<std::decay_t<T>>::apply(std::forward<T>(provider), std::forward<Handler>(handler));
+template <typename Provider, typename Handler>
+constexpr auto async_get_connection(Provider&& p, Handler&& h) ->
+        decltype(async_get_connection_impl<std::decay_t<Provider>>::apply(std::forward<Provider>(p), std::forward<Handler>(h))) {
+    return async_get_connection_impl<std::decay_t<Provider>>::apply(std::forward<Provider>(p), std::forward<Handler>(h));
 }
 
 template <typename, typename = std::void_t<>>
@@ -862,18 +861,18 @@ constexpr auto ConnectionProvider = is_connection_provider<std::decay_t<T>>::val
     void (error_code ec, connection_type<ConnectionProvider> conn);
  * @endcode
  *
- * This behaviour can be customized via `async_get_connection_impl` specialization. E.g. for #Connection
- * possible customization may looks like this (*exposition only*):
+ * This behaviour can be customized via `async_get_connection_impl` specialization. E.g. for custom implementation
+ * of #Connection customization may looks like this (*exposition only*):
  *
  * @code
-    template <typename T>
-    struct async_get_connection_impl<T, Require<Connection<T>>> {
+    template <typename ...Ts>
+    struct async_get_connection_impl<MyConnection<Ts...>> {
         template <typename Conn, typename Handler>
         static constexpr void apply(Conn&& c, Handler&& h) {
-            reset_error_context(c);
-            auto ex = get_executor(c);
-            asio::dispatch(ex, detail::bind(
-                std::forward<Handler>(h), error_code{}, std::forward<Conn>(c)));
+            c->prepareForNextOp();
+            async_get_connection_impl_default<MyConnection<Ts...>>::apply(
+                std::forward<Conn>(c), std::forward<Handler>(h)
+            );
         }
     };
  * @endcode
@@ -898,7 +897,7 @@ inline auto get_connection(T&& provider, CompletionToken&& token) {
 }
 
 template <typename T>
-struct async_get_connection_impl<T, Require<Connection<T>>> {
+struct async_get_connection_impl_default<T, Require<Connection<T>>> {
     template <typename Conn, typename Handler>
     static constexpr void apply(Conn&& c, Handler&& h) {
         reset_error_context(c);

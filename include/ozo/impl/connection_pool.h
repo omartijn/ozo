@@ -44,10 +44,20 @@ using pooled_connection_ptr = std::shared_ptr<pooled_connection<Source>>;
 } // namespace ozo::impl
 namespace ozo {
 template <typename T>
-struct unwrap_connection_impl<impl::pooled_connection<T>> {
+struct unwrap_impl<impl::pooled_connection<T>> {
     template <typename Conn>
     static constexpr decltype(auto) apply(Conn&& conn) noexcept {
-        return unwrap_connection(*(conn.handle_));
+        return unwrap(*conn.handle_);
+    }
+};
+
+template <typename T>
+struct is_nullable<impl::pooled_connection<T>> : std::true_type {};
+
+template <typename T>
+struct is_null_impl<impl::pooled_connection<T>> {
+    static bool apply(const impl::pooled_connection<T>& conn) {
+        return conn.empty() ? true : is_null(unwrap(conn));
     }
 };
 } // namespace ozo
@@ -99,7 +109,7 @@ struct pooled_connection_wrapper {
         }
 
         auto conn = std::allocate_shared<connection>(get_allocator(), std::forward<Handle>(handle));
-        if (!conn->empty() && connection_good(conn)) {
+        if (connection_good(conn)) {
             ec = rebind_io_context(conn, io_);
             return handler_(std::move(ec), std::move(conn));
         }
