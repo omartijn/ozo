@@ -73,22 +73,29 @@ inline boost::optional<pg_result> make_pg_result(
 
 struct fake_query {
     hana::tuple<> params;
+};
 
-    template <typename T, typename Allocator>
-    friend auto make_binary_query(fake_query query, const ozo::oid_map_t<T>&, Allocator) {
-        return query;
-    }
+} // namespace ozo::tests
 
-    template <class ... Ts>
-    friend const char* get_query_text(const fake_query&) {
+namespace ozo {
+
+template <>
+struct get_query_text_impl<tests::fake_query> {
+    static constexpr decltype(auto) apply(const tests::fake_query&) noexcept {
         return "fake query";
     }
+};
 
-    template <class ... Ts>
-    friend const auto& get_query_params(const fake_query& self) {
-        return self.params;
+template <>
+struct get_query_params_impl<tests::fake_query> {
+    static constexpr decltype(auto) apply(const tests::fake_query& q) noexcept {
+        return q.params;
     }
 };
+
+} // namespace ozo
+
+namespace ozo::tests {
 
 static_assert(Query<fake_query>, "fake_query is not a Query");
 
@@ -108,7 +115,7 @@ struct connection {
     }
 
     template <typename ...Ts>
-    friend int pq_send_query_params(connection& c, const fake_query&) noexcept {
+    friend int pq_send_query_params(connection& c, Ts&&...) noexcept {
         return c.mock_->send_query_params();
     }
 

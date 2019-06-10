@@ -43,15 +43,13 @@ int main(int argc, char **argv) {
 
         //! [Creating Connection Provider]
 
-        // The next step is bind asio::io_context with ConnectionSource to setup executor for all
-        // callbacks. Default connection is a ConnectionProvider. If there is some problem with network
-        // or database we don't want to wait indefinitely, so we establish connect timeout. If there is
-        // no available connection in the connection pool we also want to wait within finite time duration.
-        ozo::connection_pool_timeouts timeouts;
-        timeouts.connect = std::chrono::seconds(1);
-        timeouts.queue = std::chrono::seconds(1);
-
-        const auto connector = ozo::make_connector(connection_pool, io, timeouts);
+        // The next step is bind io_context with ConnectionSource to setup executor for all
+        // callbacks. This line is for the exposition and education purpose only.
+        // The best practice is to use simple inline call like
+        //
+        //     ozo::request(connection_pool[io], query, ozo::deadline(1s), ozo::into(res), yield);
+        //
+        const auto connector = connection_pool[io];
         //! [Creating Connection Provider]
 
         // Request result is always set of rows. Client should take care of output object lifetime.
@@ -61,14 +59,14 @@ int main(int argc, char **argv) {
         // Also we setup request timeout and reference for error code to avoid throwing exceptions.
         // Function returns connection which can be used as ConnectionProvider for futher requests or to
         // get additional inforation about error through error context.
-        const std::chrono::seconds request_timeout(1);
         boost::system::error_code ec;
         // This allows to use _SQL literals
         using namespace ozo::literals;
+        using namespace std::chrono_literals;
         const auto connection = ozo::request(
             connector,
             "SELECT pg_backend_pid()"_SQL,
-            request_timeout,
+            ozo::deadline(1s),
             ozo::into(result),
             yield[ec]
         );
@@ -80,7 +78,15 @@ int main(int argc, char **argv) {
             std::cout << "Request failed with error: " << ec.message();
             // Here we should check if the connection is in null state to avoid UB.
             if (!ozo::is_null_recursive(connection)) {
-                std::cout << ", error context: " << ozo::get_error_context(connection);
+                // Let's check libpq native error message and if so - print it out
+                if (auto msg = ozo::error_message(connection); !msg.empty()) {
+                    std::cout << ", error message: " << msg;
+                }
+                // Sometimes libpq native error message is not enough, so let's check
+                // the additional error context from OZO
+                if (auto ctx = ozo::get_error_context(connection); !ctx.empty()) {
+                    std::cout << ", error context: " << ctx;
+                }
             }
             std::cout << std::endl;
             return;
